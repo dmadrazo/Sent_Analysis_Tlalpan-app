@@ -1,69 +1,75 @@
 import streamlit as st
-import tweepy
-import pandas as pd
-from textblob import TextBlob
+import nltk
+from nltk.corpus import stopwords
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
+from afinn import Afinn
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
-# Configure Twitter API v2
-def configure_twitter_api_v2():
-    bearer_token = 'AAAAAAAAAAAAAAAAAAAAAIXPvQEAAAAAfMOHoqaI8wTNfwx%2BtszKOYfbnGc%3D0uXNsHncdDLFENCGXBpjDja8NGNrf4AfMpCMMWI8U8vAYrKUpn'  # Replace with your Twitter API v2 Bearer Token
-    client = tweepy.Client(bearer_token=bearer_token)
-    return client
+# Descargamos los recursos de NLTK
+nltk.download('stopwords')
+nltk.download('vader_lexicon')
 
-# Function to clean the tweets
-def clean_tweet(tweet):
-    return ' '.join([word for word in tweet.split() if not word.startswith('http') and not word.startswith('@')])
+def analyze_text(text):
+    """
+    Realiza un análisis de sentimiento utilizando AFINN y VADER, y genera una nube de palabras.
 
-# Function to get the sentiment
-def get_sentiment(tweet):
-    analysis = TextBlob(tweet)
-    if analysis.sentiment.polarity > 0:
-        return 'Positive'
-    elif analysis.sentiment.polarity == 0:
-        return 'Neutral'
-    else:
-        return 'Negative'
+    AFINN: Es un léxico de palabras con puntuaciones numéricas que reflejan su connotación positiva o negativa.
+    Los puntajes AFINN suelen variar entre -5 (muy negativo) y 5 (muy positivo).
 
-def main():
-    st.title("Twitter Sentiment Analysis")
+    VADER: Es un analizador de sentimientos específico para el lenguaje de las redes sociales. 
+    Los puntajes VADER van de -1 (muy negativo) a 1 (muy positivo). El puntaje 'compound' que se utiliza aquí representa el sentimiento general del texto.
 
-    # Sidebar for input
-    st.sidebar.title("Search Tweets")
-    query = st.sidebar.text_input("Enter a keyword or hashtag:")
-    num_tweets = st.sidebar.slider("Number of tweets to analyze", 10, 100, 50)
-    analyze_button = st.sidebar.button("Analyze")
+    Args:
+        text: El texto a analizar.
 
-    if analyze_button and query:
-        client = configure_twitter_api_v2()
-        response = client.search_recent_tweets(query=query, max_results=num_tweets, tweet_fields=["created_at", "lang"])
-        
-        tweets = response.data
-        if not tweets:
-            st.error("No tweets found!")
-            return
+    Returns:
+        Una tupla con los resultados del análisis de sentimiento: (sentimiento_afinn, sentimiento_vader)
+    """
 
-        # Create a DataFrame
-        df = pd.DataFrame([tweet.text for tweet in tweets], columns=["Tweet"])
-        df["Cleaned Tweet"] = df["Tweet"].apply(clean_tweet)
-        df["Sentiment"] = df["Cleaned Tweet"].apply(get_sentiment)
+    # Tokenización y eliminación de stopwords
+    words = nltk.word_tokenize(text)
+    stop_words = set(stopwords.words('spanish'))  # Ajusta el idioma según sea necesario
+    words = [word for word in words if word not in stop_words]
 
-        # Display the DataFrame
-        st.write(df)
+    # Análisis de sentimiento AFINN
+    afinn = Afinn()
+    sentiment_afinn = afinn.score(text)
 
-        # Sentiment Analysis
-        st.subheader("Sentiment Analysis")
-        sentiment_count = df["Sentiment"].value_counts()
-        st.bar_chart(sentiment_count)
+    # Análisis de sentimiento VADER
+    sia = SentimentIntensityAnalyzer()
+    sentiment_vader = sia.polarity_scores(text)['compound']
 
-        # Word Cloud
-        st.subheader("Word Cloud")
-        all_words = ' '.join([text for text in df["Cleaned Tweet"]])
-        wordcloud = WordCloud(width=800, height=400, random_state=21, max_font_size=110).generate(all_words)
-        plt.figure(figsize=(10, 5))
-        plt.imshow(wordcloud, interpolation="bilinear")
-        plt.axis('off')
-        st.pyplot(plt)
+    # Generar nube de palabras
+    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(' '.join(words))
 
-if __name__ == "__main__":
-    main()
+    # Mostrar y guardar la nube de palabras
+    plt.figure(figsize=(10, 5))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis("off")
+    plt.savefig("wordcloud.png")  # Guarda la imagen
+    st.image("wordcloud.png")  # Muestra la imagen en Streamlit
+
+    # Graficar sentimientos
+    plt.figure(figsize=(10, 5))
+    plt.bar(['AFINN', 'VADER'], [sentiment_afinn, sentiment_vader])
+    plt.ylabel('Sentimiento')
+    plt.title('Comparación de Sentimientos (AFINN y VADER)')
+    plt.ylim(-1.2, 1.2)  # Ajusta el límite del eje y para visualizar mejor los resultados
+    plt.savefig("sentimientos.png")
+    st.image("sentimientos.png")
+
+    return sentiment_afinn, sentiment_vader
+
+# Interfaz de usuario
+st.title("Analizador de Sentimiento con AFINN y VADER")
+st.write("AFINN y VADER son herramientas para analizar el sentimiento de un texto. AFINN asigna puntajes a palabras basadas en un léxico, mientras que VADER está diseñado para entender el lenguaje natural de las redes sociales.")
+st.write("**Interpretación de los puntajes:**")
+st.write("- **AFINN:** Varía entre -5 (muy negativo) y 5 (muy positivo).")
+st.write("- **VADER:** Varía entre -1 (muy negativo) y 1 (muy positivo).")
+text_input = st.text_area("Ingrese su texto aquí:")
+
+if st.button("Analizar"):
+    sentiment_afinn, sentiment_vader = analyze_text(text_input)
+    st.write("Sentimiento AFINN:", sentiment_afinn)
+    st.write("Sentimiento VADER:", sentiment_vader)
